@@ -10,6 +10,9 @@
 #   STRATA_SYCL_SHM    1 (default): the host's /dev/shm is the container's /dev/shm. Pictures: the server (on the host) writes the
 #                      image embeddings of a request into /dev/shm and names that file on the engine's GENI line, so the engine in
 #                      the container must see the same file. 0: the container keeps a private /dev/shm.
+#   STRATA_SYCL_CPUSET docker's --cpuset-cpus                 (default: unset = every CPU. A host that pins a VM to
+#                      some cores sets this to the rest, e.g. 0-4: the engine reads its own affinity mask, so its
+#                      expert pool takes the cores the container has and leaves the others to the VM)
 # Passed into the container: every variable of this script's environment that starts with STRATA_ (the config's
 # "env" block arrives that way: the server puts it in the engine's environment), ONEAPI_ (level_zero:* for a
 # two-card split, #423), UR_, IGC_, SYCL_ or ZES_. The port's own defaults (below) are overridden the same way,
@@ -19,6 +22,8 @@ here=$(cd "$(dirname "$0")/../.." && pwd)                 # the repo
 root=${STRATA_SYCL_ROOT:-$(dirname "$here")}
 repo_in=/work/$(basename "$here")
 name=${STRATA_SYCL_NAME:-strata-sycl-serve}
+cpus=()                                                   # STRATA_SYCL_CPUSET: the container's CPUs (e.g. 0-4); the
+[ -n "${STRATA_SYCL_CPUSET:-}" ] && cpus=(--cpuset-cpus "$STRATA_SYCL_CPUSET")   # rest is left to a VM's vcpupin
 docker rm -f "$name" >/dev/null 2>&1 || true              # a container left behind by a killed server
 args=""
 for a in "$@"; do args+=" $(printf '%q' "$a")"; done
@@ -40,6 +45,7 @@ done
 shm=()
 if [ "${STRATA_SYCL_SHM:-1}" != 0 ] && [ -d /dev/shm ]; then shm=(-v /dev/shm:/dev/shm); fi
 exec docker run --rm -i --name "$name" --device /dev/dri --oom-score-adj 1000 --stop-timeout 30 --no-healthcheck \
+    "${cpus[@]}" \
     --ulimit memlock=-1 \
     -v "$root:/work" \
     "${shm[@]}" \
